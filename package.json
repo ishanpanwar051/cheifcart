@@ -1,0 +1,15 @@
+{
+  "name": "chefkart-fullstack",
+  "version": "1.0.0",
+  "description": "Chefkart food delivery application",
+  "scripts": {
+    "start": "concurrently \"npm run backend\" \"npm run frontend\"",
+    "dev": "concurrently \"npm run backend\" \"npm run frontend\"",
+    "backend": "cd backend/ChefkartBackend && npm run dev",
+    "frontend": "cd frontend/ChefkarFrontend1 && npm start",
+    "install-all": "npm install && cd backend/ChefkartBackend && npm install && cd ../../frontend/ChefkarFrontend1 && npm install"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
