@@ -7,9 +7,19 @@ const BookingSchema=new mongoose.Schema({
     
     status: { 
         type: String, 
-        enum: ['booked', 'non-booked'], // Updated status options
-        default: 'non-booked' // Default to "non-booked"
+        enum: ['pending', 'confirmed', 'cancelled'], // Updated status options
+        default: 'pending'
     },
+    
+    // Payment fields for Stripe integration
+    paymentStatus: {
+        type: String,
+        enum: ['pending', 'completed', 'failed', 'cancelled'],
+        default: 'pending'
+    },
+    paymentIntentId: String, // Stripe PaymentIntent ID
+    amount: { type: Number, min: 0 }, // Booking amount in dollars
+    
     notes: { type: String },
     createdAt: { type: Date, default: Date.now }
 }, {

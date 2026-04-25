@@ -99,6 +99,12 @@ app.use('/foodgall', FoodGallRoutes);
 app.use('/admin', adminRoutes);
 app.use('/upload', uploadRoutes);
 
+// Payment Integration (Stripe)
+app.use('/payment', require('./routes/Payment.route'));
+
+// Static files for uploaded images
+app.use('/uploads', express.static('uploads'));
+
 app.use('/api', require('./routes/api.route'));
 
 app.use((req, res, next) => {
