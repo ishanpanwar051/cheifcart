@@ -1,7 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
-import apiClient from '../../config/api';
-import { toast } from 'react-toastify';
+import usePayment from '../../hooks/usePayment';
 
 /**
  * PaymentForm Component
@@ -12,143 +11,185 @@ import { toast } from 'react-toastify';
  * - amount: Amount to charge (in dollars)
  * - onSuccess: Callback when payment succeeds
  * - onError: Callback when payment fails
+ * - isLoading: External loading state
  */
-const PaymentForm = ({ bookingId, amount, onSuccess, onError }) => {
+const PaymentForm = ({ bookingId, amount, onSuccess, onError, isLoading: externalLoading = false }) => {
   const stripe = useStripe();
   const elements = useElements();
+  const { createPaymentIntent, confirmPayment, isLoading: paymentLoading } = usePayment();
+  
+  const [clientSecret, setClientSecret] = useState('');
+  const [paymentIntentId, setPaymentIntentId] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(false);
+  const [cardComplete, setCardComplete] = useState(false);
+
+  // Create payment intent when component mounts
+  useEffect(() => {
+    if (!bookingId || !amount) {
+      setError('Booking ID and amount are required');
+      return;
+    }
+
+    const initializePayment = async () => {
+      const result = await createPaymentIntent(bookingId, amount);
+      if (result.success) {
+        setClientSecret(result.data.clientSecret);
+        setPaymentIntentId(result.data.paymentIntentId);
+        setError(null);
+      } else {
+        setError(result.error);
+        onError?.(result.error);
+      }
+    };
+
+    initializePayment();
+  }, [bookingId, amount, createPaymentIntent, onError]);
+
+  const handleCardChange = (event) => {
+    setCardComplete(event.complete);
+    if (event.error) {
+      setError(event.error.message);
+    } else {
+      setError('');
+    }
+  };
 
   const handlePayment = async (e) => {
     e.preventDefault();
 
-    // Validate inputs
     if (!stripe || !elements) {
-      setError('Stripe library not loaded');
+      setError('Stripe is not loaded');
       return;
     }
 
-    if (!bookingId || !amount) {
-      setError('Missing booking ID or amount');
+    if (!clientSecret) {
+      setError('Payment initialization failed. Please try again.');
       return;
     }
+
+    setLoading(true);
+    setError('');
 
     try {
-      setLoading(true);
-      setError(null);
+      console.log('[Payment] Confirming card payment for booking:', bookingId);
 
-      console.log('[Payment] Creating payment intent for booking:', bookingId);
-
-      // Step 1: Create payment intent on backend
-      const { data } = await apiClient.post('/payment/create-payment-intent', {
-        bookingId,
-        amount,
-        currency: 'usd',
-      });
-
-      const { clientSecret } = data;
-
-      console.log('[Payment] Payment intent created:', data.paymentIntentId);
-
-      // Step 2: Confirm card payment with Stripe
+      // Confirm card payment with Stripe
       const { error: paymentError, paymentIntent } = await stripe.confirmCardPayment(
         clientSecret,
         {
           payment_method: {
             card: elements.getElement(CardElement),
-            billing_details: {
-              // Optional: add billing details if needed
-            },
           },
         }
       );
 
       if (paymentError) {
-        console.error('[Payment] Payment error:', paymentError);
+        console.error('[Payment] Payment error:', paymentError.message);
         setError(paymentError.message);
-        if (onError) onError(paymentError);
-        toast.error(`Payment failed: ${paymentError.message}`);
+        onError?.(paymentError.message);
       } else if (paymentIntent.status === 'succeeded') {
-        console.log('[Payment] ✅ Payment successful:', paymentIntent.id);
-        toast.success('Payment successful! Your booking is confirmed.');
-        if (onSuccess) onSuccess(paymentIntent.id);
-      } else if (paymentIntent.status === 'processing') {
-        console.log('[Payment] Processing payment...');
-        toast.info('Payment is being processed. Please wait...');
+        // Payment succeeded - confirm with backend
+        console.log('[Payment] Card payment succeeded:', paymentIntent.id);
+        const confirmResult = await confirmPayment(paymentIntent.id, bookingId);
+
+        if (confirmResult.success) {
+          setSuccess(true);
+          setError('');
+          console.log('[Payment] Transaction confirmed by backend');
+          onSuccess?.(confirmResult.data);
+        } else {
+          setError(confirmResult.error);
+          onError?.(confirmResult.error);
+        }
+      } else {
+        setError(`Payment status: ${paymentIntent.status}`);
       }
     } catch (err) {
       console.error('[Payment] Error:', err);
-      setError(err.response?.data?.message || err.message || 'Payment failed');
-      if (onError) onError(err);
-      toast.error(err.response?.data?.message || 'Payment failed. Please try again.');
+      const errorMsg = err.message || 'Payment failed';
+      setError(errorMsg);
+      onError?.(errorMsg);
     } finally {
       setLoading(false);
     }
   };
 
+  if (success) {
+    return (
+      <div className="payment-success-container">
+        <div className="success-content">
+          <div className="success-icon">✓</div>
+          <h3>Payment Successful!</h3>
+          <p>Your booking has been confirmed. Check your email for confirmation details.</p>
+        </div>
+      </div>
+    );
+  }
+
+  const isDisabled = !stripe || !cardComplete || loading || externalLoading || paymentLoading;
+
   return (
-    <form onSubmit={handlePayment} className="space-y-4">
-      {/* Card input */}
-      <div className="p-4 border border-gray-300 rounded-lg bg-white">
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Card Details
-        </label>
-        <CardElement
-          options={{
-            style: {
-              base: {
-                fontSize: '16px',
-                color: '#424770',
-                '::placeholder': {
-                  color: '#aab7c4',
+    <form onSubmit={handlePayment} className="payment-form-container">
+      <div className="form-section">
+        <label className="form-label">Card Details</label>
+        <div className="card-element-wrapper">
+          <CardElement
+            options={{
+              style: {
+                base: {
+                  fontSize: '16px',
+                  color: '#424770',
+                  '::placeholder': {
+                    color: '#aab7c4',
+                  },
+                },
+                invalid: {
+                  color: '#fa755a',
                 },
               },
-              invalid: {
-                color: '#fa755a',
-              },
-            },
-          }}
-        />
+            }}
+            onChange={handleCardChange}
+          />
+        </div>
       </div>
 
-      {/* Error message */}
       {error && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
+        <div className="error-message">
           {error}
         </div>
       )}
 
-      {/* Amount display */}
-      <div className="p-4 bg-gray-50 rounded border border-gray-200">
-        <p className="text-sm text-gray-600">Amount to pay:</p>
-        <p className="text-2xl font-bold text-gray-900">${amount.toFixed(2)}</p>
+      <div className="amount-display">
+        <span>Amount to pay:</span>
+        <strong>${amount?.toFixed(2) || '0.00'}</strong>
       </div>
 
-      {/* Submit button */}
       <button
         type="submit"
-        disabled={!stripe || loading}
-        className={`w-full py-3 px-4 rounded-lg font-medium text-white transition-colors ${
-          loading || !stripe
-            ? 'bg-gray-400 cursor-not-allowed'
-            : 'bg-blue-600 hover:bg-blue-700 active:bg-blue-800'
-        }`}
+        disabled={isDisabled}
+        className="pay-button"
       >
-        {loading ? (
-          <span className="flex items-center justify-center">
-            <span className="animate-spin mr-2">⏳</span>
-            Processing Payment...
-          </span>
+        {loading || externalLoading || paymentLoading ? (
+          <>
+            <span className="spinner"></span>
+            Processing...
+          </>
         ) : (
-          `Pay $${amount.toFixed(2)}`
+          `Pay $${amount?.toFixed(2) || '0.00'}`
         )}
       </button>
 
-      {/* Test card info */}
-      <div className="p-3 bg-blue-50 border border-blue-200 rounded text-xs text-blue-700">
-        <p className="font-medium mb-1">💳 Test with Stripe Demo Cards:</p>
-        <p>Success: 4242 4242 4242 4242 (Any future date)</p>
-        <p>Failed: 4000 0000 0000 0002</p>
+      <div className="security-notice">
+        <p>Your payment is secure and encrypted by Stripe.</p>
+      </div>
+
+      {/* Test card information */}
+      <div className="test-cards-info">
+        <p className="test-label">Test Cards (Stripe):</p>
+        <p>Success: 4242 4242 4242 4242 | Exp: Any future date | CVC: Any 3 digits</p>
+        <p>Failed: 4000 0000 0000 0002 | Exp: Any future date | CVC: Any 3 digits</p>
       </div>
     </form>
   );

@@ -1,46 +1,101 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import useLocation from '../../hooks/useLocation';
+import './LocationTracker.css';
 
 /**
  * LocationTracker Component
- * Displays user's current location with accuracy
+ * Displays user's current location with map integration
  * Handles loading and error states
+ * Usage: <LocationTracker autoWatch={true} onLocationChange={handleLocation} />
  */
-const LocationTracker = ({ onLocationChange }) => {
-  const { location, error, loading } = useLocation({
-    enableHighAccuracy: true,
-    timeout: 5000,
-    maximumAge: 0,
-  });
+const LocationTracker = ({ 
+  autoWatch = false, 
+  onLocationChange, 
+  showMap = false,
+  height = '400px' 
+}) => {
+  const { 
+    location, 
+    error, 
+    loading, 
+    getLocation, 
+    startWatching, 
+    stopWatching,
+    calculateDistance,
+    isWatching 
+  } = useLocation({ autoWatch });
+
+  const [address, setAddress] = useState('');
+  const [distance, setDistance] = useState(null);
 
   // Call parent callback when location updates
-  React.useEffect(() => {
-    if (location && onLocationChange) {
-      onLocationChange(location);
+  useEffect(() => {
+    if (location) {
+      onLocationChange?.(location);
+      console.log('[LocationTracker] Location updated:', location);
     }
   }, [location, onLocationChange]);
 
-  if (loading) {
+  /**
+   * Get address from coordinates using reverse geocoding
+   */
+  const getAddressFromCoordinates = async (lat, lng) => {
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`
+      );
+      const data = await response.json();
+      setAddress(data.address?.city || data.address?.town || 'Unknown Location');
+    } catch (err) {
+      console.error('[LocationTracker] Geocoding error:', err);
+      setAddress('Unable to get address');
+    }
+  };
+
+  // Get address when location changes
+  useEffect(() => {
+    if (location) {
+      getAddressFromCoordinates(location.latitude, location.longitude);
+    }
+  }, [location]);
+
+  /**
+   * Calculate distance to a destination
+   */
+  const calculateDistanceTo = (destLat, destLng) => {
+    if (!location) {
+      alert('Current location not available');
+      return;
+    }
+    const dist = calculateDistance(
+      location.latitude,
+      location.longitude,
+      destLat,
+      destLng
+    );
+    setDistance(dist);
+    console.log(`[LocationTracker] Distance: ${dist.toFixed(2)} km`);
+  };
+
+  if (loading && !location) {
     return (
-      <div className="p-4 bg-blue-50 rounded border border-blue-200">
-        <p className="text-sm text-blue-700 flex items-center">
-          <span className="animate-spin mr-2">⏳</span>
-          Getting your location...
-        </p>
+      <div className="location-tracker">
+        <div className="tracker-loading">
+          <div className="spinner"></div>
+          <p>Getting your location...</p>
+        </div>
       </div>
     );
   }
 
-  if (error) {
+  if (error && !location) {
     return (
-      <div className="p-4 bg-red-50 rounded border border-red-200">
-        <p className="text-sm text-red-700">
-          <span className="mr-2">❌</span>
-          {error}
-        </p>
-        <p className="text-xs text-red-600 mt-2">
-          💡 Tip: Make sure to enable location access in your browser permissions
-        </p>
+      <div className="location-tracker">
+        <div className="tracker-error">
+          <span className="error-icon">⚠️</span>
+          <p>{error}</p>
+          <p className="error-hint">Enable location in browser settings</p>
+        </div>
       </div>
     );
   }
@@ -50,30 +105,98 @@ const LocationTracker = ({ onLocationChange }) => {
   }
 
   return (
-    <div className="p-4 bg-green-50 rounded border border-green-200">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-sm font-medium text-gray-700">📍 Your Location</p>
-          <p className="text-sm text-gray-600 mt-1">
-            Latitude: {location.latitude.toFixed(6)}
-          </p>
-          <p className="text-sm text-gray-600">
-            Longitude: {location.longitude.toFixed(6)}
-          </p>
-          <p className="text-xs text-gray-500 mt-2">
-            ✓ Accuracy: ±{location.accuracy.toFixed(0)}m
-          </p>
-          {location.altitude && (
-            <p className="text-xs text-gray-500">
-              ⬆️ Altitude: {location.altitude.toFixed(0)}m
-            </p>
-          )}
-          <p className="text-xs text-gray-400 mt-2">
-            Last updated: {location.timestamp.toLocaleTimeString()}
-          </p>
+    <div className="location-tracker">
+      <div className="tracker-header">
+        <h3>Your Location</h3>
+        <div className="location-status">
+          {isWatching && <span className="watching-badge">Tracking</span>}
+          <span className="status-check">✓</span>
         </div>
-        <div className="text-green-600 text-2xl">✓</div>
       </div>
+
+      <div className="location-info">
+        <div className="coordinate-block">
+          <div className="coordinate">
+            <label>Latitude</label>
+            <span className="value">{location.latitude.toFixed(6)}</span>
+          </div>
+          <div className="coordinate">
+            <label>Longitude</label>
+            <span className="value">{location.longitude.toFixed(6)}</span>
+          </div>
+        </div>
+
+        <div className="location-details">
+          <div className="detail-item">
+            <span className="label">Address:</span>
+            <span className="value">{address}</span>
+          </div>
+          <div className="detail-item">
+            <span className="label">Accuracy:</span>
+            <span className="value">±{location.accuracy.toFixed(2)}m</span>
+          </div>
+          {location.altitude && (
+            <div className="detail-item">
+              <span className="label">Altitude:</span>
+              <span className="value">{location.altitude.toFixed(2)}m</span>
+            </div>
+          )}
+          <div className="detail-item">
+            <span className="label">Updated:</span>
+            <span className="value">
+              {new Date(location.timestamp).toLocaleTimeString()}
+            </span>
+          </div>
+        </div>
+
+        {distance !== null && (
+          <div className="distance-display">
+            <p>Distance: <strong>{distance.toFixed(2)} km</strong></p>
+          </div>
+        )}
+      </div>
+
+      <div className="tracker-controls">
+        <button 
+          onClick={getLocation}
+          className="btn btn-primary"
+          disabled={loading}
+        >
+          {loading ? 'Getting...' : 'Get Location'}
+        </button>
+
+        <button 
+          onClick={startWatching}
+          className="btn btn-success"
+          disabled={isWatching || loading}
+        >
+          {isWatching ? 'Tracking...' : 'Start Track'}
+        </button>
+
+        <button 
+          onClick={stopWatching}
+          className="btn btn-danger"
+          disabled={!isWatching}
+        >
+          Stop
+        </button>
+      </div>
+
+      {showMap && location && (
+        <div className="map-container" style={{ height }}>
+          <div className="map-placeholder">
+            <p>Map: {location.latitude.toFixed(4)}, {location.longitude.toFixed(4)}</p>
+            <a 
+              href={`https://maps.openstreetmap.org/?mlat=${location.latitude}&mlon=${location.longitude}&zoom=15`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="map-link"
+            >
+              View on Map
+            </a>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -17,11 +17,24 @@ const BookingSchema=new mongoose.Schema({
         enum: ['pending', 'completed', 'failed', 'cancelled'],
         default: 'pending'
     },
-    paymentIntentId: String, // Stripe PaymentIntent ID
-    amount: { type: Number, min: 0 }, // Booking amount in dollars
+    paymentIntentId: {
+        type: String,
+        sparse: true
+    },
+    amount: { 
+        type: Number, 
+        min: 0,
+        default: 0
+    },
     
+    // Additional booking info
     notes: { type: String },
-    createdAt: { type: Date, default: Date.now }
+    numberOfGuests: { type: Number, default: 1 },
+    specialRequests: { type: String },
+    
+    // Timestamps
+    createdAt: { type: Date, default: Date.now },
+    paidAt: { type: Date }
 }, {
     timestamps: true // Automatically manage createdAt and updatedAt
 });
